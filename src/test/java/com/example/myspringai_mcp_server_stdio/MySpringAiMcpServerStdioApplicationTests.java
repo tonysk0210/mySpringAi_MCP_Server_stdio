@@ -1,10 +1,10 @@
-package com.example.myspringai_mcp_server_streamhttp_remote;
+package com.example.myspringai_mcp_server_stdio;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class MySpringAiMcpServerStreamhttpRemoteApplicationTests {
+class MySpringAiMcpServerStdioApplicationTests {
 
     @Test
     void contextLoads() {

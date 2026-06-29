@@ -1,4 +1,4 @@
-package com.example.myspringai_mcp_server_streamhttp_remote.payload;
+package com.example.myspringai_mcp_server_stdio.payload;
 
 public record HelpDeskTicketPayload(String issue, String username) {
 }

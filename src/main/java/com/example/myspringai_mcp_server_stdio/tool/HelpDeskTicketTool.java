@@ -1,8 +1,8 @@
-package com.example.myspringai_mcp_server_streamhttp_remote.tool;
+package com.example.myspringai_mcp_server_stdio.tool;
 
-import com.example.myspringai_mcp_server_streamhttp_remote.entity.HelpDeskTicketEntity;
-import com.example.myspringai_mcp_server_streamhttp_remote.payload.HelpDeskTicketPayload;
-import com.example.myspringai_mcp_server_streamhttp_remote.service.HelpDeskTicketService;
+import com.example.myspringai_mcp_server_stdio.entity.HelpDeskTicketEntity;
+import com.example.myspringai_mcp_server_stdio.payload.HelpDeskTicketPayload;
+import com.example.myspringai_mcp_server_stdio.service.HelpDeskTicketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;

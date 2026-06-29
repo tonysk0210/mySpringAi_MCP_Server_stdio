@@ -9,10 +9,10 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.example</groupId>
-    <artifactId>mySpringAi_MCP_Server_streamhttp_remote</artifactId>
+    <artifactId>mySpringAi_MCP_Server_stdio</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>mySpringAi_MCP_Server_streamhttp_remote</name>
-    <description>mySpringAi_MCP_Server_streamhttp_remote</description>
+    <name>mySpringAi_MCP_Server_stdio</name>
+    <description>mySpringAi_MCP_Server_stdio</description>
     <url/>
     <licenses>
         <license/>
@@ -43,13 +43,18 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
-        <!--  spring-ai-starter-mcp-server-webmvc
+        <!--  spring-ai-starter-mcp-server
+                = MCP Server common / stdio 方向
+                = client 啟動你的 Java process
+                = 透過 stdin/stdout 傳 MCP JSON-RPC 訊息
+
+               spring-ai-starter-mcp-server-webmvc
                 = MCP Server WebMVC 方向
                 = 你的 app 是 HTTP server
                 = client 透過 HTTP / SSE / streamable HTTP 類型 transport 連線 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+            <artifactId>spring-ai-starter-mcp-server</artifactId>
         </dependency>
 
         <dependency>

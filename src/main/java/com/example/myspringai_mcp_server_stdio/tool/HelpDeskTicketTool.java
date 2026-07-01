@@ -3,6 +3,7 @@ package com.example.myspringai_mcp_server_stdio.tool;
 import com.example.myspringai_mcp_server_stdio.entity.HelpDeskTicketEntity;
 import com.example.myspringai_mcp_server_stdio.payload.HelpDeskTicketPayload;
 import com.example.myspringai_mcp_server_stdio.service.HelpDeskTicketService;
+import io.modelcontextprotocol.spec.McpSchema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
@@ -14,6 +15,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -63,7 +65,7 @@ public class HelpDeskTicketTool {
     }
 
     @McpTool(name = "getTicketStatus", description = "取得所有「服務工單」並提供工單相關細節，包括工單編號、問題描述、狀態、建立時間及預計完成時間")
-    List<HelpDeskTicketEntity> getTicketStatus(@McpToolParam(description = "用來查詢服務工單狀態的使用者名稱") String username, McpSyncRequestContext ctx) {
+    List<HelpDeskTicketEntity> getTicketStatus(@McpToolParam(description = "用來查詢服務工單狀態的使用者名稱") String username, McpSyncRequestContext ctx) throws InterruptedException {
         log.info("取得 {} 的所有「服務工單」: ", username);
         ctx.info("正在查詢使用者「" + username + "」的服務工單");
 
@@ -72,7 +74,61 @@ public class HelpDeskTicketTool {
         log.info("共 {} 張「服務工單」 for userName: {}", tickets.size(), username);
         ctx.info("已完成使用者「" + username + "」的服務工單查詢，共 " + tickets.size() + " 張");
 
+        // 模擬一段耗時流程，並每秒向 MCP client 發送一次查詢進度訊息 (這是一個模擬的耗時流程，實際應用中可能需要根據具体情况調整)
+        for (int i = 0; i < 10; i++) {
+            Thread.sleep(1000); // 每次先停 1 秒
+            int percent = (i * 100) / 10; // 計算目前百分比
+            // 呼叫 ctx.progress(...) 發送一個進度訊息
+            ctx.progress(spec -> spec.progress(percent)
+                    .message("正在查詢使用者「" + username + "」的服務工單 - 已完成 " + percent + "%"));
+        }
+
         return tickets;
         // throw new RuntimeException("系統發生錯誤-請聯繫人工客服"); // 用來測試 Tool calling 發生錯誤情境
+    }
+
+
+    @McpTool(name = "summarizeTickets", description = "針對指定使用者名稱底下的所有服務工單，產生一段友善且自然的摘要")
+    String summarizeTickets(@McpToolParam(description = "要摘要服務工單的使用者名稱") String username, McpSyncRequestContext ctx) {
+        log.info("Generating ticket summary for user: {}", username);
+
+        // 1. 取得該使用者的所有服務工單
+        List<HelpDeskTicketEntity> tickets = service.getHelpDeskTicketsByUser(username);
+
+        if (tickets.isEmpty()) {
+            return "No support tickets were found for user " + username + ".";
+        }
+
+        // MCP Sampling lets this server ask the connected client to run an LLM
+        // completion on its behalf. First make sure the client actually advertised
+        // the sampling capability during initialization.
+        if (!ctx.sampleEnabled()) {
+            log.warn("Connected MCP client does not support sampling. Returning raw ticket data instead.");
+            return tickets.toString();
+        }
+
+        String ticketData = tickets.stream()
+                .map(t -> "Ticket #" + t.getId() + " | Issue: " + t.getIssue()
+                        + " | Status: " + t.getStatus() + " | ETA: " + t.getEta())
+                .collect(Collectors.joining("\n"));
+
+        String systemPrompt = """
+                You are a friendly help desk assistant. Using ONLY the ticket data provided by the user,
+                write a short, warm summary for the customer about the status of their support tickets.
+                Mention how many tickets they have in total, group them by status (OPEN, IN_PROGRESS, CLOSED),
+                and reassure them about the ones that are still being worked on. Keep it under 120 words and
+                do not invent any information that is not present in the ticket data.
+                """;
+
+        log.info("Requesting LLM completion from the MCP client via sampling...");
+        ctx.info("Asking your AI assistant to summarize " + tickets.size() + " ticket(s) for " + username);
+
+        McpSchema.CreateMessageResult result = ctx.sample(spec -> spec
+                .systemPrompt(systemPrompt)
+                .message("Here are the support tickets for " + username + ":\n" + ticketData));
+
+        String summary = ((McpSchema.TextContent) result.content()).text();
+        log.info("Sampling response received. Model used by client: {}", result.model());
+        return summary;
     }
 }

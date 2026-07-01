@@ -88,47 +88,56 @@ public class HelpDeskTicketTool {
     }
 
 
+    /**
+     * summarizeTickets 是一個 MCP tool：它根據 username 查詢服務工單，
+     * 若 client 支援 MCP Sampling，就把工單資料送給 client 端 LLM 產生友善摘要；若 client 不支援 sampling，則退回原始工單資料。
+     */
     @McpTool(name = "summarizeTickets", description = "針對指定使用者名稱底下的所有服務工單，產生一段友善且自然的摘要")
     String summarizeTickets(@McpToolParam(description = "要摘要服務工單的使用者名稱") String username, McpSyncRequestContext ctx) {
-        log.info("Generating ticket summary for user: {}", username);
+        log.info("正在為使用者「{}」產生服務工單摘要", username);
 
         // 1. 取得該使用者的所有服務工單
         List<HelpDeskTicketEntity> tickets = service.getHelpDeskTicketsByUser(username);
 
         if (tickets.isEmpty()) {
-            return "No support tickets were found for user " + username + ".";
+            return "找不到使用者「" + username + "」的任何服務工單。";
         }
 
-        // MCP Sampling lets this server ask the connected client to run an LLM
-        // completion on its behalf. First make sure the client actually advertised
-        // the sampling capability during initialization.
+        /*
+        這段很重要。因為 MCP Sampling 不是 server 自己一定能做，而是要看「連上的 MCP client」有沒有宣告支援 sampling。
+        如果 client 不支援 sampling，這個 server 不能強迫 client 幫它跑 LLM，所以 fallback 回傳原始資料。
+        */
         if (!ctx.sampleEnabled()) {
-            log.warn("Connected MCP client does not support sampling. Returning raw ticket data instead.");
+            log.info("已連線的 MCP client 不支援 sampling，將直接回傳原始工單資料。");
             return tickets.toString();
         }
 
+        // 2. 把 Java entity 轉成 LLM 比較容易讀的純文字格式。
         String ticketData = tickets.stream()
-                .map(t -> "Ticket #" + t.getId() + " | Issue: " + t.getIssue()
-                        + " | Status: " + t.getStatus() + " | ETA: " + t.getEta())
+                .map(t -> "工單 #" + t.getId() + " | 問題：" + t.getIssue()
+                        + " | 狀態：" + t.getStatus() + " | 預計完成：" + t.getEta())
                 .collect(Collectors.joining("\n"));
 
         String systemPrompt = """
-                You are a friendly help desk assistant. Using ONLY the ticket data provided by the user,
-                write a short, warm summary for the customer about the status of their support tickets.
-                Mention how many tickets they have in total, group them by status (OPEN, IN_PROGRESS, CLOSED),
-                and reassure them about the ones that are still being worked on. Keep it under 120 words and
-                do not invent any information that is not present in the ticket data.
+                你是一位友善的服務台助理。請「僅」根據使用者提供的工單資料，
+                為客戶撰寫一段簡短且溫暖的摘要，說明其服務工單的狀態。
+                請提及工單總數，並依狀態分組（OPEN、IN_PROGRESS、CLOSED），
+                同時對仍在處理中的工單給予鼓勵與安慰。內容請控制在 120 字以內，
+                且不得虛構任何工單資料中未出現的資訊。
                 """;
 
-        log.info("Requesting LLM completion from the MCP client via sampling...");
-        ctx.info("Asking your AI assistant to summarize " + tickets.size() + " ticket(s) for " + username);
+        log.info("正在透過 sampling 向 MCP client 請求 LLM 摘要生成...");
+        ctx.info("正在請求 AI 助理為使用者「" + username + "」摘要 " + tickets.size() + " 張服務工單");
 
+        // 3. 這裡才是真正請 MCP client 執行 LLM sampling。systemPrompt 告訴模型摘要規則，.message(...) 提供實際工單資料。
         McpSchema.CreateMessageResult result = ctx.sample(spec -> spec
                 .systemPrompt(systemPrompt)
-                .message("Here are the support tickets for " + username + ":\n" + ticketData));
+                .message("以下是使用者「" + username + "」的服務工單：\n" + ticketData));
 
+        // 4. 把 client 回傳的 LLM 結果取出文字，作為 tool 的回傳值。
         String summary = ((McpSchema.TextContent) result.content()).text();
-        log.info("Sampling response received. Model used by client: {}", result.model());
+
+        log.info("已收到 sampling 回應，client 使用的模型：{}", result.model());
         return summary;
     }
 }

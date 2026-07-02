@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class HelpDeskTicketTool {
 
+    private static final String MCP_LOGGER = "mySpringAi_MCP_Server_stdio";
+
     private final HelpDeskTicketService service;
 
     // 內部 framework + reflection so Tool's methods still gets called even not declared as public
@@ -37,13 +39,13 @@ public class HelpDeskTicketTool {
     String createTicket(@McpToolParam(description = "需要建立的「服務工單」的 payload") HelpDeskTicketPayload payload, McpSyncRequestContext ctx) {
 
         log.info("協助 userName: {} 來建立「服務工單」；問題訴求: {}", payload.username(), payload.issue());
-        ctx.info("正在為使用者「" + payload.username() + "」建立服務工單，問題描述：「" + payload.issue() + "」");
+        info(ctx, "正在為使用者「" + payload.username() + "」建立服務工單，問題描述：「" + payload.issue() + "」");
 
 
         // 1. 呼叫 Service 層建立「服務工單」
         HelpDeskTicketEntity savedTicket = service.createHelpDeskTicket(payload);
         log.info("成功建立「服務工單」 id#: {}, userName: {}", savedTicket.getId(), savedTicket.getUsername());
-        ctx.info("已為使用者「" + savedTicket.getUsername() + "」建立服務工單，工單編號 #" + savedTicket.getId());
+        info(ctx, "已為使用者「" + savedTicket.getUsername() + "」建立服務工單，工單編號 #" + savedTicket.getId());
 
 
         // 2. 回傳建立「服務工單」的結果 returnDirect=true：模型會直接回傳此字串給使用者，不再追加其他回答
@@ -67,12 +69,12 @@ public class HelpDeskTicketTool {
     @McpTool(name = "getTicketStatus", description = "取得所有「服務工單」並提供工單相關細節，包括工單編號、問題描述、狀態、建立時間及預計完成時間")
     List<HelpDeskTicketEntity> getTicketStatus(@McpToolParam(description = "用來查詢服務工單狀態的使用者名稱") String username, McpSyncRequestContext ctx) throws InterruptedException {
         log.info("取得 {} 的所有「服務工單」: ", username);
-        ctx.info("正在查詢使用者「" + username + "」的服務工單");
+        info(ctx, "正在查詢使用者「" + username + "」的服務工單");
 
         // 1. 查詢該使用者所有「服務工單」並回傳；模型可用此結果回答進度
         List<HelpDeskTicketEntity> tickets = service.getHelpDeskTicketsByUser(username);
         log.info("共 {} 張「服務工單」 for userName: {}", tickets.size(), username);
-        ctx.info("已完成使用者「" + username + "」的服務工單查詢，共 " + tickets.size() + " 張");
+        info(ctx, "已完成使用者「" + username + "」的服務工單查詢，共 " + tickets.size() + " 張");
 
         // 模擬一段耗時流程，並每秒向 MCP client 發送一次查詢進度訊息 (這是一個模擬的耗時流程，實際應用中可能需要根據具体情况調整)
         for (int i = 0; i < 10; i++) {
@@ -128,7 +130,7 @@ public class HelpDeskTicketTool {
                 """;
 
         log.info("正在透過 sampling 向 MCP client 請求 LLM 摘要生成...");
-        ctx.info("正在請求 AI 助理為使用者「" + username + "」摘要 " + tickets.size() + " 張服務工單");
+        info(ctx, "正在請求 AI 助理為使用者「" + username + "」摘要 " + tickets.size() + " 張服務工單");
 
         // 3. 這裡才是真正請 MCP client 執行 LLM sampling。systemPrompt 告訴模型摘要規則，.message(...) 提供實際工單資料。
         McpSchema.CreateMessageResult result = ctx.sample(spec -> spec
@@ -140,5 +142,13 @@ public class HelpDeskTicketTool {
 
         log.info("已收到 sampling 回應，client 使用的模型：{}", result.model());
         return summary;
+    }
+
+    // Helper 方法：向 MCP client 發送 info 等級的 log
+    private void info(McpSyncRequestContext ctx, String message) {
+        ctx.log(spec -> spec
+                .level(McpSchema.LoggingLevel.INFO)
+                .logger(MCP_LOGGER)
+                .message(message));
     }
 }

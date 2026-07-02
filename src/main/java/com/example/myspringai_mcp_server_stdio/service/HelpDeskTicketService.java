@@ -18,12 +18,14 @@ public class HelpDeskTicketService {
     /**
      * 建立一個 HelpDeskTicket
      */
-    public HelpDeskTicketEntity createHelpDeskTicket(HelpDeskTicketPayload payload) {
+    public HelpDeskTicketEntity createHelpDeskTicket(HelpDeskTicketPayload payload, String priority, String contactPhone) {
         // 1. 建立一個 HelpDeskTicketEntity
         HelpDeskTicketEntity ticket = HelpDeskTicketEntity.builder()
                 .issue(payload.issue())
                 .username(payload.username())
                 .status("OPEN")
+                .priority(priority) // Elicit from user
+                .contactPhone(contactPhone) // Elicit from user
                 .createdAt(LocalDateTime.now())
                 .eta(LocalDateTime.now().plusDays(7))
                 .build();

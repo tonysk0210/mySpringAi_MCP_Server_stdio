@@ -2,6 +2,7 @@ package com.example.myspringai_mcp_server_stdio.tool;
 
 import com.example.myspringai_mcp_server_stdio.entity.HelpDeskTicketEntity;
 import com.example.myspringai_mcp_server_stdio.payload.HelpDeskTicketPayload;
+import com.example.myspringai_mcp_server_stdio.payload.TicketContactInfo;
 import com.example.myspringai_mcp_server_stdio.service.HelpDeskTicketService;
 import io.modelcontextprotocol.spec.McpSchema;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +11,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.ai.mcp.annotation.context.McpSyncRequestContext;
+import org.springframework.ai.mcp.annotation.context.StructuredElicitResult;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
 public class HelpDeskTicketTool {
 
     private static final String MCP_LOGGER = "mySpringAi_MCP_Server_stdio";
+    private static final String DEFAULT_PRIORITY = "MEDIUM";
+    private static final String NO_PHONE_PROVIDED = "N/A";
 
     private final HelpDeskTicketService service;
 
@@ -41,20 +45,60 @@ public class HelpDeskTicketTool {
         log.info("協助 userName: {} 來建立「服務工單」；問題訴求: {}", payload.username(), payload.issue());
         info(ctx, "正在為使用者「" + payload.username() + "」建立服務工單，問題描述：「" + payload.issue() + "」");
 
+        String priority = DEFAULT_PRIORITY;
+        String contactPhone = NO_PHONE_PROVIDED;
 
-        // 1. 呼叫 Service 層建立「服務工單」
-        HelpDeskTicketEntity savedTicket = service.createHelpDeskTicket(payload);
+        // 1. 請求使用者提供額外的工單細節
+        if (ctx.elicitEnabled()) {
+            info(ctx, "開立工單前，需要請您提供一些額外資訊...");
+            log.info("正在透過 elicitation 向 MCP client 請求額外的工單細節...");
+
+            // Spring AI 會根據 TicketContactInfo record 產生 MCP elicitation 的 requestedSchema，
+            // MCP client 可依此 schema 向使用者收集 priority/contactPhone。
+            // 若使用者接受，Spring AI 會把 client 回傳的 content 轉回 TicketContactInfo。
+            // 1.1 請求使用者提供優先等級及聯絡電話
+            StructuredElicitResult<TicketContactInfo> elicitResult = ctx.elicit(
+                    spec -> spec.message("在開立服務工單之前，請選擇優先等級（LOW、MEDIUM、HIGH 或 URGENT），"
+                            + "並提供聯絡電話，以便我們的團隊與您聯繫。"),
+                    TicketContactInfo.class);
+
+            log.info("Elicitation 已完成，使用者操作：{}", elicitResult.action());
+
+            // 1.2 根據使用者回應設定優先等級及聯絡電話
+            if (elicitResult.action() == McpSchema.ElicitResult.Action.ACCEPT
+                    && elicitResult.structuredContent() != null) {
+                // 使用者提供了額外資訊
+                TicketContactInfo info = elicitResult.structuredContent();
+                if (info.priority() != null && !info.priority().isBlank()) {
+                    priority = info.priority();
+                }
+                if (info.contactPhone() != null && !info.contactPhone().isBlank()) {
+                    contactPhone = info.contactPhone();
+                }
+                info(ctx, "感謝！將使用優先等級「" + priority + "」及聯絡電話「" + contactPhone + "」開立工單。");
+            } else {
+                // 使用者選擇拒絕或取消，以預設值繼續。
+                info(ctx, "未提供額外資訊，將以預設優先等級「" + DEFAULT_PRIORITY + "」開立工單。");
+            }
+        } else {
+            log.warn("已連線的 MCP client 不支援 elicitation，將使用預設工單細節。");
+        }
+
+        // 3. 呼叫 Service 層建立「服務工單」
+        HelpDeskTicketEntity savedTicket = service.createHelpDeskTicket(payload, priority, contactPhone);
         log.info("成功建立「服務工單」 id#: {}, userName: {}", savedTicket.getId(), savedTicket.getUsername());
         info(ctx, "已為使用者「" + savedTicket.getUsername() + "」建立服務工單，工單編號 #" + savedTicket.getId());
 
 
-        // 2. 回傳建立「服務工單」的結果 returnDirect=true：模型會直接回傳此字串給使用者，不再追加其他回答
+        // 3. 回傳建立「服務工單」的結果 returnDirect=true：模型會直接回傳此字串給使用者，不再追加其他回答
         return String.format("""
                         工單建立成功！
                         - 工單編號：#%d
                         - 使用者：%s
                         - 問題描述：%s
                         - 狀態：%s
+                        - 優先等級：%s
+                        - 聯絡電話：%s
                         - 建立時間：%s
                         - 預計處理時間：%s
                         """,
@@ -62,6 +106,8 @@ public class HelpDeskTicketTool {
                 savedTicket.getUsername(),
                 savedTicket.getIssue(),
                 savedTicket.getStatus(),
+                priority,
+                contactPhone,
                 savedTicket.getCreatedAt(),
                 savedTicket.getEta());
     }

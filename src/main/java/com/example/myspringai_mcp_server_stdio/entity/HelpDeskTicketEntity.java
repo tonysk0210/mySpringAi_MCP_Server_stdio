@@ -24,6 +24,10 @@ public class HelpDeskTicketEntity {
 
     private String status; // e.g., OPEN, IN_PROGRESS, CLOSED
 
+    private String priority; // e.g., LOW, MEDIUM, HIGH, URGENT
+
+    private String contactPhone; // collected from the user via MCP elicitation
+
     private LocalDateTime createdAt;
 
     private LocalDateTime eta;

@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class HelpDeskTicketTool {
 
-    private static final String MCP_LOGGER = "MySpringAi_MCP_Server_stdio";
+    private static final String MCP_LOGGER = "MySpringAi_MCP_Server_stdio_logger";
 
     private static final String DEFAULT_PRIORITY = "MEDIUM";
     private static final String NO_PHONE_PROVIDED = "N/A";

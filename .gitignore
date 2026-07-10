@@ -39,3 +39,6 @@ build/
 
 ### OS ###
 .DS_Store
+
+### Log ###
+*.log

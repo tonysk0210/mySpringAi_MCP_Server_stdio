@@ -7,7 +7,9 @@
       "Skill(explain)",
       "Skill(find-docs)",
       "Bash(npx ctx7@latest library \"Spring AI\" \"@McpTool annotation returnDirect MCP server tool properties\")",
-      "Bash(npx ctx7@latest docs /websites/spring_io_spring-ai_2_0_0 \"@McpTool annotation properties returnDirect MCP server tool\")"
+      "Bash(npx ctx7@latest docs /websites/spring_io_spring-ai_2_0_0 \"@McpTool annotation properties returnDirect MCP server tool\")",
+      "Bash(git rm *)",
+      "Bash(git add *)"
     ]
   }
 }

@@ -38,13 +38,18 @@ public class HelpDeskTicketTool {
      * 回傳格式化的工單確認訊息，包含工單編號、狀態與預計處理時間。
      */
     @McpTool(name = "createTicket", description = "建立「服務工單」")
-    String createTicket(@McpToolParam(description = "需要建立的「服務工單」的 payload") HelpDeskTicketPayload payload, McpSyncRequestContext ctx) {
+    String createTicket(
+            @McpToolParam(description = "遇到的問題描述") String issue,
+            @McpToolParam(description = "使用者名稱") String username,
+            McpSyncRequestContext ctx) {
 
         /* McpSyncRequestContext 是 Spring AI MCP framework 在每次 tool 被呼叫時動態建立的物件，代表「這一次 MCP 請求的上下文」。
         像 Spring MVC 裡的 HttpServletRequest——每個 HTTP 請求都有一個獨立的 HttpServletRequest，不是 singleton bean */
 
-        log.info("正在為使用者「{}」建立服務工單，問題描述：「{}」", payload.username(), payload.issue());
-        info(ctx, "正在為使用者「" + payload.username() + "」建立服務工單，問題描述：「" + payload.issue() + "」");
+        HelpDeskTicketPayload payload = new HelpDeskTicketPayload(issue, username);
+
+        log.info("正在為使用者「{}」建立服務工單，問題描述：「{}」", username, issue);
+        info(ctx, "正在為使用者「" + username + "」建立服務工單，問題描述：「" + issue + "」");
 
         String priority = DEFAULT_PRIORITY;
         String contactPhone = NO_PHONE_PROVIDED;
@@ -163,14 +168,12 @@ public class HelpDeskTicketTool {
      */
     @McpTool(name = "troubleshootIssue", description = "在開立服務工單之前，先透過 AI 分析問題並提供自助排障建議，包含可能原因、排查步驟與是否建議開立工單")
     String troubleshootIssue(
-            @McpToolParam(description = "需要進行排障分析的「服務工單」payload") HelpDeskTicketPayload payload,
+            @McpToolParam(description = "遇到的問題描述") String issue,
+            @McpToolParam(description = "使用者名稱") String username,
             McpSyncRequestContext ctx) {
 
-        String username = payload.username();
-        String issueDescription = payload.issue();
-
-        log.info("正在為使用者「{}」分析問題：「{}」", username, issueDescription);
-        info(ctx, "正在為使用者「" + username + "」分析問題：「" + issueDescription + "」");
+        log.info("正在為使用者「{}」分析問題：「{}」", username, issue);
+        info(ctx, "正在為使用者「" + username + "」分析問題：「" + issue + "」");
 
         // 1. 取得歷史已解決工單作為知識庫（只納入有填寫 resolution 的工單）
         List<HelpDeskTicketEntity> resolvedTickets = service.getResolvedTickets();
@@ -206,7 +209,7 @@ public class HelpDeskTicketTool {
         // 4. 請 Client LLM 推理排障建議，message 同時提供問題描述與歷史知識庫
         McpSchema.CreateMessageResult result = ctx.sample(spec -> spec
                 .systemPrompt(systemPrompt)
-                .message("使用者「" + username + "」遇到的問題：" + issueDescription
+                .message("使用者「" + username + "」遇到的問題：" + issue
                         + "\n\n歷史解決案例參考：\n" + knowledgeBase));
 
         String advice = ((McpSchema.TextContent) result.content()).text();

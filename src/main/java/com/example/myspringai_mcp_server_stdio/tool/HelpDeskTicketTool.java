@@ -163,9 +163,11 @@ public class HelpDeskTicketTool {
      */
     @McpTool(name = "troubleshootIssue", description = "在開立服務工單之前，先透過 AI 分析問題並提供自助排障建議，包含可能原因、排查步驟與是否建議開立工單")
     String troubleshootIssue(
-            @McpToolParam(description = "使用者名稱") String username,
-            @McpToolParam(description = "遇到的問題描述") String issueDescription,
+            @McpToolParam(description = "需要進行排障分析的「服務工單」payload") HelpDeskTicketPayload payload,
             McpSyncRequestContext ctx) {
+
+        String username = payload.username();
+        String issueDescription = payload.issue();
 
         log.info("正在為使用者「{}」分析問題：「{}」", username, issueDescription);
         info(ctx, "正在為使用者「" + username + "」分析問題：「" + issueDescription + "」");

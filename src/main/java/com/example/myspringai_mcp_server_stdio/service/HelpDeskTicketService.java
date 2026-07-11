@@ -33,10 +33,11 @@ public class HelpDeskTicketService {
         return helpDeskTicketRepository.save(ticket);
     }
 
-    /**
-     * 根據用戶名查詢 HelpDeskTicket
-     */
     public List<HelpDeskTicketEntity> getHelpDeskTicketsByUser(String username) {
         return helpDeskTicketRepository.findByUsername(username);
+    }
+
+    public List<HelpDeskTicketEntity> getResolvedTickets() {
+        return helpDeskTicketRepository.findByStatus("CLOSED");
     }
 }

@@ -146,7 +146,7 @@ public class HelpDeskTicketTool {
         for (int i = 0; i < 10; i++) {
             Thread.sleep(1000); // 每次先停 1 秒
             int percent = (i + 1) * 100 / 10; // 計算目前百分比
-            // 呼叫 ctx.progress(...) 發送一個結構化進度事件；
+            // 呼叫 ctx.progress(...) 發送一個結構化進度事件，向 MCP client 送出 ProgressNotification；
             // 若 client 支援，可用來顯示 progress bar 或任務進度。
             ctx.progress(spec -> spec.progress(percent)
                     .message("正在查詢使用者「" + username + "」的服務工單 - 已完成 " + percent + "%"));
@@ -157,63 +157,62 @@ public class HelpDeskTicketTool {
     }
     
     /**
-     * 負責為指定使用者的所有服務工單產生一段友善的自然語言摘要。特別之處在於它不自己生成文字，而是透過 MCP Sampling (借用 Client 已有的 LLM) 把工單資料交給 client 端的 LLM 來撰寫摘要
+     * 在開立服務工單前，先透過 MCP Sampling 借用 Client LLM 對使用者問題進行自助排障分析。
+     * Server 提供問題描述與歷史已解決工單作為知識庫，Client LLM 推理可能原因、排查步驟，
+     * 並建議是否需要開立工單。若 client 不支援 sampling，則引導使用者直接呼叫 createTicket。
      */
-    @McpTool(name = "summarizeTickets", description = "針對指定使用者名稱底下的所有服務工單，產生一段友善且自然的摘要")
-    String summarizeTickets(@McpToolParam(description = "要摘要服務工單的使用者名稱") String username, McpSyncRequestContext ctx) {
-        log.info("正在為使用者「{}」產生服務工單摘要", username);
-        info(ctx, "正在為使用者「" + username + "」產生服務工單摘要");
+    @McpTool(name = "troubleshootIssue", description = "在開立服務工單之前，先透過 AI 分析問題並提供自助排障建議，包含可能原因、排查步驟與是否建議開立工單")
+    String troubleshootIssue(
+            @McpToolParam(description = "使用者名稱") String username,
+            @McpToolParam(description = "遇到的問題描述") String issueDescription,
+            McpSyncRequestContext ctx) {
 
-        // 1. 取得該使用者的所有服務工單
-        List<HelpDeskTicketEntity> tickets = service.getHelpDeskTicketsByUser(username);
+        log.info("正在為使用者「{}」分析問題：「{}」", username, issueDescription);
+        info(ctx, "正在為使用者「" + username + "」分析問題：「" + issueDescription + "」");
 
-        if (tickets.isEmpty()) {
-            return "找不到使用者「" + username + "」的任何服務工單。";
-        }
+        // 1. 取得歷史已解決工單作為知識庫（只納入有填寫 resolution 的工單）
+        List<HelpDeskTicketEntity> resolvedTickets = service.getResolvedTickets();
 
-        /*
-        這段很重要。因為 MCP Sampling 不是 server 自己一定能做，而是要看「連上的 MCP client」有沒有宣告支援 sampling。
-        如果 client 不支援 sampling，這個 server 不能強迫 client 幫它跑 LLM，所以 fallback 回傳原始資料。
-        */
-        // 2. 檢查 client 是否支援 sampling
+        // 2. 若 client 不支援 sampling，引導使用者直接開工單
         if (!ctx.sampleEnabled()) {
-
-            log.info("已連線的 MCP client 不支援 sampling，將直接回傳原始工單資料。");
-            info(ctx, "已連線的 MCP client 不支援 sampling，將直接回傳原始工單資料。");
-
-            return tickets.toString();
+            log.warn("已連線的 MCP client 不支援 sampling，無法執行 AI 排障。");
+            info(ctx, "已連線的 MCP client 不支援 sampling，無法執行 AI 排障。");
+            return "很抱歉，目前 AI 自助排障功能無法使用。直接使用「建立服務工單」功能";
         }
 
-        // 2. 把 Java entity 轉成 LLM 比較容易讀的純文字格式。
-        String ticketData = tickets.stream()
-                .map(t -> "工單 #" + t.getId() + " | 問題：" + t.getIssue()
-                        + " | 狀態：" + t.getStatus() + " | 預計完成：" + t.getEta())
+        // 3. 格式化歷史解決案例（僅列有 resolution 的工單，確保知識庫有實質內容）
+        String rawKnowledgeBase = resolvedTickets.stream()
+                .filter(t -> t.getResolution() != null && !t.getResolution().isBlank())
+                .map(t -> "問題：" + t.getIssue() + " | 解決方式：" + t.getResolution())
                 .collect(Collectors.joining("\n"));
 
+        String knowledgeBase = rawKnowledgeBase.isBlank() ? "（目前無歷史解決案例）" : rawKnowledgeBase;
+
         String systemPrompt = """
-                你是一位友善的服務台助理。請「僅」根據使用者提供的工單資料，
-                為客戶撰寫一段簡短且溫暖的摘要，說明其服務工單的狀態。
-                請提及工單總數，並依狀態分組（OPEN、IN_PROGRESS、CLOSED），
-                同時對仍在處理中的工單給予鼓勵與安慰。內容請控制在 120 字以內，
-                且不得虛構任何工單資料中未出現的資訊。
+                你是一位專業且親切的 IT 客服排障助理。
+                請根據使用者描述的問題，參考以下歷史解決案例，提供：
+                1. 可能的問題原因（1-3 點）
+                2. 建議的自助排查步驟（條列式）
+                3. 是否建議開立服務工單（是/否），並說明理由
+
+                回應請控制在 200 字以內，語氣親切專業，不得虛構資訊。
                 """;
 
-        log.info("開始請 client llm 為使用者「{}」生成 sampling 摘要 {} 張服務工單", username, tickets.size());
-        info(ctx, "開始請 client llm 為使用者「" + username + "」生成 sampling 摘要 " + tickets.size() + " 張服務工單");
+        log.info("開始透過 ctx.sample() 為使用者「{}」進行 AI 排障分析", username);
+        info(ctx, "開始透過 ctx.sample() 為使用者「" + username + "」進行 AI 排障分析");
 
-        // 3. 這裡才是真正請 MCP client 執行 LLM sampling。systemPrompt 告訴模型摘要規則，.message(...) 提供實際工單資料。
+        // 4. 請 Client LLM 推理排障建議，message 同時提供問題描述與歷史知識庫
         McpSchema.CreateMessageResult result = ctx.sample(spec -> spec
                 .systemPrompt(systemPrompt)
-                .message("以下是使用者「" + username + "」的服務工單：\n" + ticketData));
+                .message("使用者「" + username + "」遇到的問題：" + issueDescription
+                        + "\n\n歷史解決案例參考：\n" + knowledgeBase));
 
-        // 4. 把 client 回傳的 LLM 結果取出文字，作為 tool 的回傳值。
-        String summary = ((McpSchema.TextContent) result.content()).text();
+        String advice = ((McpSchema.TextContent) result.content()).text();
 
-        log.info("已收到 sampling 回應，client 使用的模型：{}", result.model());
-        info(ctx, "已收到 sampling 回應，client 使用的模型：" + result.model());
+        log.info("AI 排障分析完成，client 使用模型：{}", result.model());
+        info(ctx, "AI 排障分析完成，client 使用模型：" + result.model());
 
-        // 5. 返回生成的摘要
-        return summary;
+        return advice;
     }
 
     // Helper 方法：向 MCP client 發送 info 等級的 log

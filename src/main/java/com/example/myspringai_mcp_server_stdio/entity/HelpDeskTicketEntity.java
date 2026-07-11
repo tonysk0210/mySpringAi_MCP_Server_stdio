@@ -31,4 +31,7 @@ public class HelpDeskTicketEntity {
     private LocalDateTime createdAt;
 
     private LocalDateTime eta;
+
+    @Column(length = 1000)
+    private String resolution; // 工單解決方式，status 變為 CLOSED 時填入
 }
